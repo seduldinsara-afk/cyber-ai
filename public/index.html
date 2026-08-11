@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>CYBER</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #05070a;
+    font-family: -apple-system, "SF Pro Display", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #app {
+    position: relative; height: 100dvh; width: 100vw;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+    padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom);
+    background: radial-gradient(circle at 50% 20%, rgba(0,225,255,0.10), transparent 60%), #05070a;
+  }
+  video#camFeed { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.30; z-index: 0; }
+  .scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,10,0.85) 0%, rgba(5,7,10,0.55) 40%, rgba(5,7,10,0.9) 100%); z-index: 1; }
+  header { z-index: 2; text-align: center; padding-top: 24px; }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: 6px; font-weight: 600; color: #00e1ff; text-shadow: 0 0 18px rgba(0,225,255,0.6); }
+  #status { margin-top: 6px; font-size: 12px; color: #6ee3f5aa; letter-spacing: 1px; min-height: 16px; }
+  main { z-index: 2; flex: 1; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; }
+  .orb-wrap { position: relative; width: 200px; height: 200px; display: flex; align-items: center; justify-content: center; }
+  .ring { position: absolute; border-radius: 50%; border: 1px solid rgba(0,225,255,0.25); }
+  .ring1 { width: 200px; height: 200px; }
+  .ring2 { width: 162px; height: 162px; border-color: rgba(0,225,255,0.4); }
+  #orb {
+    width: 124px; height: 124px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #6ff4ff, #00b7d6 55%, #003a45 100%);
+    box-shadow: 0 0 30px rgba(0,225,255,0.55), inset 0 0 25px rgba(255,255,255,0.25);
+    transition: transform 0.15s ease, box-shadow 0.2s ease;
+  }
+  #orb.listening { animation: pulse 1.1s ease-in-out infinite; }
+  #orb.speaking { animation: speak 0.5s ease-in-out infinite alternate; box-shadow: 0 0 55px rgba(0,255,200,0.85), inset 0 0 25px rgba(255,255,255,0.4); }
+  #orb.thinking { animation: pulse 0.6s ease-in-out infinite; box-shadow: 0 0 40px rgba(255,180,0,0.6); }
+  #orb.idle { opacity: 0.55; }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+  @keyframes speak { from { transform: scale(1); } to { transform: scale(1.14); } }
+  #transcript { z-index: 2; min-height: 50px; max-width: 340px; text-align: center; color: #d8f9ff; font-size: 14px; line-height: 1.4; padding: 0 12px; }
+  #nowPlaying { z-index: 2; font-size: 12px; color: #00ffc8aa; min-height: 16px; letter-spacing: 0.5px; }
+  footer { z-index: 2; width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px; padding-bottom: 10px; }
+  #connectBtn {
+    background: transparent; border: 1px solid rgba(0,225,255,0.4); color: #6ee3f5;
+    padding: 12px 28px; border-radius: 999px; font-size: 13px; letter-spacing: 1px;
+  }
+  #connectBtn.connected { border-color: #00ffc8; color: #00ffc8; }
+  .row { display: flex; gap: 12px; }
+  .iconBtn {
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 1px solid rgba(0,225,255,0.3); background: rgba(255,255,255,0.03);
+    color: #6ee3f5; font-size: 18px; display: flex; align-items: center; justify-content: center;
+  }
+  .iconBtn.on { background: rgba(0,225,255,0.2); color: #fff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <video id="camFeed" autoplay playsinline muted></video>
+  <div class="scrim"></div>
+
+  <header>
+    <h1>CYBER</h1>
+    <div id="status">tap connect to begin</div>
+  </header>
+
+  <main>
+    <div class="orb-wrap">
+      <div class="ring ring1"></div>
+      <div class="ring ring2"></div>
+      <div id="orb" class="idle"></div>
+    </div>
+    <div id="transcript">Connect, then just talk naturally. Cyber listens continuously and responds when you finish.</div>
+    <div id="nowPlaying"></div>
+  </main>
+
+  <footer>
+    <div class="row">
+      <button class="iconBtn" id="camToggle" title="Camera">📷</button>
+      <button class="iconBtn" id="muteToggle" title="Mute mic">🎤</button>
+    </div>
+    <button id="connectBtn">CONNECT</button>
+  </footer>
+</div>
+
+<audio id="remoteAudio" autoplay playsinline></audio>
+<audio id="musicPlayer" playsinline></audio>
+<canvas id="captureCanvas" style="display:none;"></canvas>
+
+<script>
+const statusEl = document.getElementById("status");
+const transcriptEl = document.getElementById("transcript");
+const nowPlayingEl = document.getElementById("nowPlaying");
+const orb = document.getElementById("orb");
+const connectBtn = document.getElementById("connectBtn");
+const camToggle = document.getElementById("camToggle");
+const muteToggle = document.getElementById("muteToggle");
+const camFeed = document.getElementById("camFeed");
+const remoteAudio = document.getElementById("remoteAudio");
+const musicPlayer = document.getElementById("musicPlayer");
+const captureCanvas = document.getElementById("captureCanvas");
+
+let pc = null;
+let dataChannel = null;
+let micStream = null;
+let camStream = null;
+let micEnabled = true;
+let camOn = false;
+let connected = false;
+let musicVolume = 70;
+
+function setStatus(text) { statusEl.textContent = text; }
+function setOrbState(state) {
+  orb.classList.remove("listening", "speaking", "thinking", "idle");
+  orb.classList.add(state || "idle");
+}
+
+// ------------------------------------------------------------
+// CONNECT — real-time WebRTC, server handles turn detection
+// (knows when you've finished speaking automatically)
+// ------------------------------------------------------------
+async function connect() {
+  if (connected) return;
+  setStatus("requesting secure session...");
+
+  try {
+    const tokenResp = await fetch("/session", { method: "POST" });
+    const tokenData = await tokenResp.json();
+
+    if (!tokenResp.ok) {
+      setStatus("error: " + (tokenData.error || "could not start session"));
+      return;
+    }
+
+    const ephemeralKey = tokenData.value || tokenData.client_secret?.value;
+
+    if (!ephemeralKey) {
+      setStatus("error: no client secret returned");
+      console.error("Unexpected token response:", tokenData);
+      return;
+    }
+
+    setStatus("connecting to microphone...");
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    pc = new RTCPeerConnection();
+    pc.ontrack = (event) => { remoteAudio.srcObject = event.streams[0]; };
+    micStream.getTracks().forEach((track) => pc.addTrack(track, micStream));
+
+    dataChannel = pc.createDataChannel("oai-events");
+    dataChannel.addEventListener("open", () => {
+      setStatus("online — listening");
+      connected = true;
+      connectBtn.textContent = "DISCONNECT";
+      connectBtn.classList.add("connected");
+      setOrbState("listening");
+    });
+    dataChannel.addEventListener("message", handleServerEvent);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    setStatus("negotiating with cyber...");
+
+    const sdpResponse = await fetch(
+      "https://api.openai.com/v1/realtime/calls?model=gpt-realtime",
+      {
+        method: "POST",
+        body: offer.sdp,
+        headers: {
+          Authorization: `Bearer ${ephemeralKey}`,
+          "Content-Type": "application/sdp",
+        },
+      }
+    );
+
+    if (!sdpResponse.ok) {
+      const errText = await sdpResponse.text();
+      console.error("SDP exchange failed:", errText);
+      setStatus("connection failed");
+      return;
+    }
+
+    const answerSdp = await sdpResponse.text();
+    await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+
+  } catch (error) {
+    console.error("Connect error:", error);
+    setStatus("error: " + error.message);
+  }
+}
+
+function disconnect() {
+  if (pc) { pc.close(); pc = null; }
+  if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+  connected = false;
+  connectBtn.textContent = "CONNECT";
+  connectBtn.classList.remove("connected");
+  setStatus("disconnected");
+  setOrbState("idle");
+}
+
+// ------------------------------------------------------------
+// Handle events from OpenAI, including function calls
+// ------------------------------------------------------------
+function handleServerEvent(event) {
+  let msg;
+  try { msg = JSON.parse(event.data); } catch { return; }
+
+  switch (msg.type) {
+    case "input_audio_buffer.speech_started":
+      setOrbState("listening");
+      setStatus("listening...");
+      break;
+
+    case "input_audio_buffer.speech_stopped":
+      setOrbState("thinking");
+      setStatus("thinking...");
+      break;
+
+    case "response.output_audio.delta":
+    case "response.audio.delta":
+      setOrbState("speaking");
+      setStatus("speaking...");
+      break;
+
+    case "response.done":
+      setOrbState("listening");
+      setStatus("online — listening");
+      break;
+
+    case "conversation.item.input_audio_transcription.completed":
+      if (msg.transcript) transcriptEl.textContent = "You: " + msg.transcript;
+      break;
+
+    case "response.output_audio_transcript.delta":
+    case "response.audio_transcript.delta":
+      if (msg.delta) {
+        if (!transcriptEl.dataset.streaming) {
+          transcriptEl.textContent = "Cyber: ";
+          transcriptEl.dataset.streaming = "1";
+        }
+        transcriptEl.textContent += msg.delta;
+      }
+      break;
+
+    case "response.output_audio_transcript.done":
+    case "response.audio_transcript.done":
+      transcriptEl.dataset.streaming = "";
+      break;
+
+    case "response.function_call_arguments.done":
+      handleFunctionCall(msg.call_id, msg.name, msg.arguments);
+      break;
+
+    case "response.output_item.done":
+      if (msg.item?.type === "function_call") {
+        handleFunctionCall(msg.item.call_id, msg.item.name, msg.item.arguments);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ------------------------------------------------------------
+// Execute a function call locally, send the result back
+// ------------------------------------------------------------
+async function handleFunctionCall(callId, name, argsJson) {
+  let args = {};
+  try { args = argsJson ? JSON.parse(argsJson) : {}; } catch { args = {}; }
+
+  let result = {};
+
+  try {
+    switch (name) {
+      case "play_music": result = await playMusic(args.song_name); break;
+      case "pause_music":
+        musicPlayer.pause();
+        result = { success: true, message: "Music paused." };
+        break;
+      case "stop_music":
+        musicPlayer.pause();
+        musicPlayer.currentTime = 0;
+        nowPlayingEl.textContent = "";
+        result = { success: true, message: "Music stopped." };
+        break;
+      case "set_volume":
+        musicVolume = Math.max(0, Math.min(100, args.level ?? 70));
+        musicPlayer.volume = musicVolume / 100;
+        result = { success: true, message: `Volume set to ${musicVolume}.` };
+        break;
+      case "take_photo":
+        result = await capturePhoto();
+        break;
+      case "analyze_camera":
+        result = await analyzeCamera("describe");
+        break;
+      case "identify_object":
+        result = await analyzeCamera("object");
+        break;
+      case "identify_money":
+        result = await analyzeCamera("money");
+        break;
+      default:
+        result = { success: false, message: "Unknown function." };
+    }
+  } catch (error) {
+    console.error("Function execution error:", error);
+    result = { success: false, message: "Function failed to execute." };
+  }
+
+  sendFunctionResult(callId, result);
+}
+
+function sendFunctionResult(callId, result) {
+  if (!dataChannel || dataChannel.readyState !== "open") return;
+
+  dataChannel.send(JSON.stringify({
+    type: "conversation.item.create",
+    item: {
+      type: "function_call_output",
+      call_id: callId,
+      output: JSON.stringify(result),
+    },
+  }));
+
+  dataChannel.send(JSON.stringify({ type: "response.create" }));
+}
+
+// ------------------------------------------------------------
+// Music
+// ------------------------------------------------------------
+async function playMusic(songName) {
+  try {
+    const listResp = await fetch("/music/list");
+    const { songs } = await listResp.json();
+
+    if (!songs || songs.length === 0) {
+      return { success: false, message: "No songs available in the music library." };
+    }
+
+    let chosen = songs[0];
+    if (songName) {
+      const match = songs.find((s) => s.toLowerCase().includes(songName.toLowerCase()));
+      if (match) chosen = match;
+    }
+
+    musicPlayer.src = "/music/" + encodeURIComponent(chosen);
+    musicPlayer.volume = musicVolume / 100;
+    await musicPlayer.play();
+    nowPlayingEl.textContent = "♪ " + chosen;
+
+    return { success: true, message: `Now playing ${chosen}.` };
+  } catch (error) {
+    console.error("Play music error:", error);
+    return { success: false, message: "Could not play music." };
+  }
+}
+
+// ------------------------------------------------------------
+// Camera capture + vision analysis
+// ------------------------------------------------------------
+function captureFrameBase64() {
+  const track = camStream.getVideoTracks()[0];
+  const settings = track.getSettings();
+
+  captureCanvas.width = settings.width || 640;
+  captureCanvas.height = settings.height || 480;
+
+  const ctx = captureCanvas.getContext("2d");
+  ctx.drawImage(camFeed, 0, 0, captureCanvas.width, captureCanvas.height);
+
+  return captureCanvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+}
+
+async function capturePhoto() {
+  if (!camOn || !camStream) {
+    return { success: false, message: "Camera is not currently active." };
+  }
+  try {
+    captureFrameBase64();
+    return { success: true, message: "Photo captured." };
+  } catch (error) {
+    console.error("Photo capture error:", error);
+    return { success: false, message: "Could not capture photo." };
+  }
+}
+
+async function analyzeCamera(mode) {
+  if (!camOn || !camStream) {
+    return { success: false, message: "Camera is not currently active. Ask the user to tap the camera icon first." };
+  }
+
+  try {
+    const base64 = captureFrameBase64();
+
+    const response = await fetch("/vision", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: base64, mode }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { success: false, message: data.error || "Vision analysis failed." };
+    }
+
+    return { success: true, description: data.description };
+  } catch (error) {
+    console.error("Camera analysis error:", error);
+    return { success: false, message: "Could not analyze the camera image." };
+  }
+}
+
+// ------------------------------------------------------------
+// UI controls
+// ------------------------------------------------------------
+connectBtn.addEventListener("click", () => { connected ? disconnect() : connect(); });
+
+muteToggle.addEventListener("click", () => {
+  if (!micStream) return;
+  micEnabled = !micEnabled;
+  micStream.getAudioTracks().forEach((t) => (t.enabled = micEnabled));
+  muteToggle.classList.toggle("on", !micEnabled);
+  muteToggle.textContent = micEnabled ? "🎤" : "🔇";
+});
+
+camToggle.addEventListener("click", async () => {
+  if (camOn) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camFeed.srcObject = null;
+    camOn = false;
+    camToggle.classList.remove("on");
+    return;
+  }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    camFeed.srcObject = camStream;
+    camOn = true;
+    camToggle.classList.add("on");
+  } catch (error) {
+    console.error("Camera error:", error);
+    setStatus("camera permission denied");
+  }
+});
+</script>
+</body>
+</html>
