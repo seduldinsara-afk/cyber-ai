@@ -1,0 +1,12 @@
+{
+  "name": "cyber-groq-v2",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cyber - JARVIS-style voice assistant, Groq-powered, continuous listening",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5"
+  }
+}
